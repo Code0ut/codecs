@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Bluuey UI – Sidebar Navigation</title>
+
+    <style>
+        :root {
+            --primary-blue: #0d47a1;
+            --secondary-blue: #1976d2;
+            --light-blue: #e3f2fd;
+            --text-dark: #1a1a1a;
+            --code-bg: #0f172a;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            scroll-behavior: smooth;
+            font-family: "Segoe UI", Arial, sans-serif;
+        }
+
+        body {
+            display: flex;
+            background: var(--light-blue);
+            color: var(--text-dark);
+        }
+
+        .sidebar {
+            width: 260px;
+            height: 100vh;
+            background: linear-gradient(180deg, var(--primary-blue), var(--secondary-blue));
+            color: white;
+            position: fixed;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .sidebar h2 {
+            text-align: center;
+            margin-bottom: 25px;
+            font-size: 22px;
+        }
+
+        .sidebar a {
+            display: block;
+            color: white;
+            text-decoration: none;
+            padding: 10px 14px;
+            margin-bottom: 8px;
+            border-radius: 6px;
+            transition: background 0.3s;
+        }
+
+        .sidebar a:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .content {
+            margin-left: 280px;
+            padding: 40px;
+            max-width: 1000px;
+        }
+
+        section {
+            margin-bottom: 50px;
+        }
+
+        section h1 {
+            color: var(--primary-blue);
+            margin-bottom: 15px;
+            border-bottom: 3px solid var(--secondary-blue);
+            display: inline-block;
+            padding-bottom: 5px;
+        }
+
+        section p {
+            font-size: 16px;
+            line-height: 1.7;
+            margin-bottom: 15px;
+        }
+
+        pre {
+            background: var(--code-bg);
+            color: #e5e7eb;
+            padding: 18px;
+            border-radius: 10px;
+            overflow-x: auto;
+            font-size: 14px;
+        }
+
+        code {
+            font-family: Consolas, monospace;
+        }
+
+        footer {
+            margin-top: 60px;
+            text-align: center;
+            color: #555;
+            font-size: 14px;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="sidebar">
+    <h2>Bluuey UI</h2>
+    <a href="#intro">Introduction</a>
+    <a href="#para1">Paragraph 1</a>
+    <a href="#para2">Paragraph 2</a>
+    <a href="#code1">WAV Analyzer Code</a>
+    <a href="#code2">CSS Code</a>
+    <a href="#code3">JavaScript Code</a>
+</div>
+
+<div class="content">
+
+    <section id="intro">
+        <h1>Introduction</h1>
+        <p>
+            This page documents a Python-based WAV file analyzer with
+            metadata extraction, signal analysis, spectral features,
+            and visualization.
+        </p>
+    </section>
+
+
+    <section id="code1">
+        <h1>WAV Analyzer – Python Code</h1>
+        <pre><code>import os
+import wave
+import numpy as np
+import librosa
+import librosa.display
+import matplotlib.pyplot as plt
+from scipy.stats import entropy
+
+
+class WavAnalyzer:
+
+    def __init__(self, file_path):
+        self.file_path = file_path
+        self.y = None
+        self.sr = None
+        self.metadata = {}
+        self.features = {}
+
+    def load_audio(self):
+        self.y, self.sr = librosa.load(self.file_path, sr=None)
+        return self.y, self.sr
+
+    def extract_metadata(self):
+        with wave.open(self.file_path, 'rb') as wav:
+            self.metadata["file_name"] = os.path.basename(self.file_path)
+            self.metadata["file_size_bytes"] = os.path.getsize(self.file_path)
+            self.metadata["channels"] = wav.getnchannels()
+            self.metadata["sample_width_bytes"] = wav.getsampwidth()
+            self.metadata["sample_rate"] = wav.getframerate()
+            self.metadata["num_frames"] = wav.getnframes()
+            self.metadata["duration_seconds"] = (
+                self.metadata["num_frames"] / self.metadata["sample_rate"]
+            )
+        return self.metadata
+
+    def extract_signal_features(self):
+        y = self.y
+        self.features["min_amplitude"] = float(np.min(y))
+        self.features["max_amplitude"] = float(np.max(y))
+        self.features["mean_amplitude"] = float(np.mean(y))
+        self.features["rms_amplitude"] = float(np.sqrt(np.mean(y**2)))
+        self.features["signal_energy"] = float(np.sum(y**2))
+
+        hist, _ = np.histogram(y, bins=256, density=True)
+        self.features["signal_entropy"] = float(entropy(hist + 1e-10))
+
+        zcr = librosa.feature.zero_crossing_rate(y)
+        self.features["zero_crossing_rate"] = float(np.mean(zcr))
+
+        return self.features
+
+    def extract_spectral_features(self):
+        y, sr = self.y, self.sr
+
+        spectral_centroid = librosa.feature.spectral_centroid(y=y, sr=sr)
+        spectral_bandwidth = librosa.feature.spectral_bandwidth(y=y, sr=sr)
+        spectral_rolloff = librosa.feature.spectral_rolloff(y=y, sr=sr)
+        mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
+
+        self.features["spectral_centroid_mean"] = float(np.mean(spectral_centroid))
+        self.features["spectral_bandwidth_mean"] = float(np.mean(spectral_bandwidth))
+        self.features["spectral_rolloff_mean"] = float(np.mean(spectral_rolloff))
+        self.features["mfcc_mean"] = np.mean(mfcc, axis=1).tolist()
+
+        return self.features
+
+    def visualize(self):
+        y, sr = self.y, self.sr
+
+        plt.figure(figsize=(14, 10))
+
+        plt.subplot(3, 2, 1)
+        librosa.display.waveshow(y, sr=sr)
+        plt.title("Waveform")
+
+        plt.subplot(3, 2, 2)
+        D = librosa.amplitude_to_db(np.abs(librosa.stft(y)), ref=np.max)
+        librosa.display.specshow(D, sr=sr, x_axis="time", y_axis="hz")
+        plt.colorbar()
+        plt.title("Spectrogram")
+
+        plt.subplot(3, 2, 3)
+        mel = librosa.feature.melspectrogram(y=y, sr=sr)
+        mel_db = librosa.power_to_db(mel, ref=np.max)
+        librosa.display.specshow(mel_db, sr=sr, x_axis="time", y_axis="mel")
+        plt.colorbar()
+        plt.title("Mel Spectrogram")
+
+        plt.subplot(3, 2, 4)
+        mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
+        librosa.display.specshow(mfcc, x_axis="time")
+        plt.colorbar()
+        plt.title("MFCC")
+
+        plt.subplot(3, 2, 5)
+        zcr = librosa.feature.zero_crossing_rate(y)
+        plt.plot(zcr[0])
+        plt.title("Zero Crossing Rate")
+
+        plt.tight_layout()
+        plt.show()
+
+    def analyze(self):
+        self.load_audio()
+        self.extract_metadata()
+        self.extract_signal_features()
+        self.extract_spectral_features()
+        return {**self.metadata, **self.features}
+
+
+if __name__ == "__main__":
+    analyzer = WavAnalyzer("example.wav")
+    results = analyzer.analyze()
+    analyzer.visualize()
+
+    for key, value in results.items():
+        print(f"{key}: {value}")</code></pre>
+    </section>
+
+    <section id="code2">
+        <h1>CSS Code Example</h1>
+        <pre><code>.sidebar {
+    width: 260px;
+    background: #0d47a1;
+}</code></pre>
+    </section>
+
+    <section id="code3">
+        <h1>JavaScript Code Example</h1>
+        <pre><code>console.log("Bluuey UI Loaded");</code></pre>
+    </section>
+
+    <footer>
+        © 2025 Bluuey UI – WAV Analyzer Documentation
+    </footer>
+
+</div>
+
+</body>
+</html>
