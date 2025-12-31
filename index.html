@@ -199,129 +199,153 @@ for r in results:
     </section>
 
     <section id="code2">
-        <h1>CSS Code Example</h1>
-        <pre><code>from reportlab.lib.pagesizes import A4
-from reportlab.platypus import (
-    SimpleDocTemplate,
-    Paragraph,
-    Spacer,
-    Table,
-    TableStyle,
-    Image,
-    PageBreak
+        <h1>cdcd Code Example</h1>
+        <pre><code>import numpy as np
+from scipy import signal
+import matplotlib.pyplot as plt
+import librosa
+
+x,fs=librosa.load('humpback_whale.wav', sr=6000)
+
+n_fft = 2048
+nperseg = 2048        # window length
+noverlap = nperseg//2 # 50% overlap
+window = signal.windows.hann(nperseg, sym=False)
+
+f, t, Sxx = signal.spectrogram(
+    x,
+    fs=fs,
+    window=window,
+    nperseg=nperseg,
+    noverlap=noverlap,
+    nfft=n_fft,
+    detrend=False,
+    scaling='density',   # gives PSD (V^2/Hz) style units
+    mode='magnitude'     # or 'psd' depending on use
 )
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib import colors
-from reportlab.lib.units import inch
 
+# Optionally restrict to low-frequency band, e.g. 0–1000 Hz
+f_max = 1000
+idx = f <= f_max
+f = f[idx]
+Sxx = Sxx[idx, :]
 
-class PDFWriter:
+# Convert magnitude to dB for display
+eps = 1e-12
+Sxx_db = 20 * np.log10(Sxx + eps)
 
-    def __init__(self, output_path):
-        self.output_path = output_path
-        self.document = SimpleDocTemplate(
-            output_path,
-            pagesize=A4,
-            rightMargin=40,
-            leftMargin=40,
-            topMargin=40,
-            bottomMargin=40
-        )
-        self.elements = []
-        self.styles = getSampleStyleSheet()
+plt.figure(figsize=(8, 4))
+plt.pcolormesh(t, f, Sxx_db, shading='gouraud', cmap='viridis')
+plt.ylabel('Frequency [Hz]')
+plt.xlabel('Time [s]')
+plt.title('LOFARgram')
+plt.colorbar(label='Level [dB]')
+plt.tight_layout()
+plt.show()
 
-    # ---------- TITLE ----------
-    def add_title(self, title):
-        self.elements.append(
-            Paragraph(f"<b>{title}</b>", self.styles["Title"])
-        )
-        self.elements.append(Spacer(1, 20))
+# Example: simple per-frequency normalization for ML
+Sxx_db_norm = (Sxx_db - Sxx_db.mean(axis=1, keepdims=True)) / \
+               (Sxx_db.std(axis=1, keepdims=True) + 1e-6)
 
-    # ---------- METADATA ----------
-    def add_metadata(self, metadata):
-        self.elements.append(
-            Paragraph("<b>Audio File Metadata</b>", self.styles["Heading2"])
-        )
-        self.elements.append(Spacer(1, 10))
+# Sxx_db_norm can now be used as input feature (e.g., to a CNN)
 
-        table_data = [["Parameter", "Value"]]
-        for key, value in metadata.items():
-            table_data.append([key, str(value)])
-
-        table = Table(table_data, colWidths=[200, 250])
-        table.setStyle(TableStyle([
-            ("GRID", (0, 0), (-1, -1), 1, colors.black),
-            ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-            ("ALIGN", (1, 1), (-1, -1), "LEFT"),
-        ]))
-
-        self.elements.append(table)
-        self.elements.append(Spacer(1, 20))
-
-    # ---------- FEATURES ----------
-    def add_features(self, features):
-        self.elements.append(
-            Paragraph("<b>Extracted Audio Features</b>", self.styles["Heading2"])
-        )
-        self.elements.append(Spacer(1, 10))
-
-        table_data = [["Feature", "Value"]]
-        for key, value in features.items():
-            table_data.append([key, str(value)])
-
-        table = Table(table_data, colWidths=[200, 250])
-        table.setStyle(TableStyle([
-            ("GRID", (0, 0), (-1, -1), 1, colors.black),
-            ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-        ]))
-
-        self.elements.append(table)
-        self.elements.append(PageBreak())
-
-    # ---------- PLOTS ----------
-    def add_plot(self, image_path, title):
-        self.elements.append(
-            Paragraph(f"<b>{title}</b>", self.styles["Heading2"])
-        )
-        self.elements.append(Spacer(1, 10))
-
-        img = Image(image_path, width=5.5 * inch, height=3 * inch)
-        self.elements.append(img)
-        self.elements.append(Spacer(1, 20))
-
-    # ---------- SAVE ----------
-    def save(self):
-        self.document.build(self.elements)
 </code></pre>
     </section>
 
     <section id="code3">
         <h1>JavaScript Code Example</h1>
-        <pre><code>from pdfWriter import PDFWriter
-from wavAnalazyer import WavAnalyzer
-analyzer = WavAnalyzer("humpback_whale.wav")
-results = analyzer.analyze()
+        <pre><code>import numpy as np
+from scipy import signal
+import matplotlib.pyplot as plt
+import librosa
+x,fs=librosa.load("humpback_whale.wav",sr=None)
+print(f"Loaded signal with {len(x)} samples at {fs} Hz")
+import numpy as np
+from scipy import signal
 
-plot_paths = []
-plot_paths.append(analyzer.plot_waveform("plots"))
-plot_paths.append(analyzer.plot_spectrogram("plots"))
-plot_paths.append(analyzer.plot_mel_spectrogram("plots"))
-plot_paths.append(analyzer.plot_mfcc("plots"))
-plot_paths.append(analyzer.plot_zero_crossing_rate("plots"))
+def third_octave_centers(fmin=20, fmax=20000, ref_fc=1000):
+    n_low = int(np.ceil(3 * np.log2(fmin / ref_fc)))
+    n_high = int(np.floor(3 * np.log2(fmax / ref_fc)))
+    n = np.arange(n_low, n_high + 1)
+    return ref_fc * (2 ** (n / 3.0))
 
-pdf = PDFWriter("audio_analysis_report.pdf")
-pdf.add_title("Audio File Analysis Report")
+def design_third_octave_filters(fc, fs, order=4):
+    filters = []
+    nyq = fs / 2.0
+    bw_factor = 2 ** (1/6)  # 1/6 octave from center to edge
 
-pdf.add_metadata(analyzer.metadata)
-pdf.add_features(analyzer.features)
+    for f_center in fc:
+        f_low = f_center / bw_factor
+        f_high = f_center * bw_factor
 
-pdf.add_plot(plot_paths[0], "Waveform")
-pdf.add_plot(plot_paths[1], "Spectrogram")
-pdf.add_plot(plot_paths[2], "Mel Spectrogram")
-pdf.add_plot(plot_paths[3], "MFCC")
-pdf.add_plot(plot_paths[4], "Zero Crossing Rate")
+        # Skip bands that go outside (0, Nyquist)
+        if f_low <= 0 or f_high >= nyq:
+            continue
 
-pdf.save()</code></pre>
+        low = f_low / nyq
+        high = f_high / nyq
+
+        # Extra safety check
+        if not (0 < low < high < 1):
+            continue
+
+        b, a = signal.butter(order, [low, high], btype='band')
+        filters.append((b, a, f_center))
+
+    return filters
+
+fc = third_octave_centers(20, fs/2) 
+
+filters = design_third_octave_filters(fc, fs)
+
+# Example signal (replace with your sonar data)
+t = np.arange(0, 10, 1/fs)
+x = np.random.randn(len(t))  # white noise example
+
+# Filter signal through each band
+band_signals = []
+band_rms = []
+valid_fc = []
+for b, a, f_center in filters:
+    # Filter the signal
+    y_band = signal.filtfilt(b, a, x)  # zero-phase filtering
+    
+    # Compute RMS power in this band
+    rms = np.sqrt(np.mean(y_band**2))
+    band_signals.append(y_band)
+    band_rms.append(rms)
+    valid_fc.append(f_center)
+band_rms_db = 20 * np.log10(np.array(band_rms) + 1e-12)
+valid_fc = np.array(valid_fc)
+plt.figure(figsize=(10, 6))
+plt.semilogx(valid_fc, band_rms_db, 'o-', linewidth=2)
+plt.xlabel('Frequency [Hz]')
+plt.ylabel('Level [dB re 1 V RMS]')
+plt.title('1/3-Octave Band Spectrum')
+plt.grid(True, which='both')
+plt.xlim([20, fs/2])
+plt.ylim([-60, 0])
+plt.show()
+
+def third_octave_analysis(x, fs, fmin=20, fmax=None):
+    """Complete 1/3-octave analysis: returns centers, levels (dB), and band signals."""
+    if fmax is None:
+        fmax = fs / 2
+    fc = third_octave_centers(fmin, fmax)
+    filters = design_third_octave_filters(fc, fs)
+    
+    band_rms = []
+    for b, a, f_center in filters:
+        y_band = signal.filtfilt(b, a, x)
+        rms = np.sqrt(np.mean(y_band**2))
+        band_rms.append(rms)
+    
+    return fc, 20 * np.log10(np.array(band_rms) + 1e-12)
+
+# Usage
+fc, levels_db = third_octave_analysis(x, fs)
+
+</code></pre>
     </section>
 
     <footer>
