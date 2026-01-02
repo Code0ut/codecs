@@ -250,149 +250,183 @@ for i in range(len(durations)):
     <section id="code2">
         <h1>cdcd Code Example</h1>
         <pre><code>import numpy as np
-from scipy import signal
+import scipy.signal as signal
+
+def compute_psd(y, sr, nperseg=4096):
+    freqs, psd = signal.welch(
+        y,
+        fs=sr,
+        window='hann',
+        nperseg=nperseg,
+        scaling='density'
+    )
+    return freqs, psd
+
+def estimate_noise_floor(psd):
+    return np.median(psd)
+
+def detect_signal_band(freqs, psd, noise_floor, factor=6):
+    mask = psd > (noise_floor * factor)
+    signal_freqs = freqs[mask]
+
+    if len(signal_freqs) == 0:
+        return None, None
+
+    lowcut = signal_freqs[0]
+    highcut = signal_freqs[-1]
+
+    return lowcut, highcut
+
+def pad_band(lowcut, highcut, sr, pad_ratio=0.1):
+    bandwidth = highcut - lowcut
+    low = max(1.0, lowcut - bandwidth * pad_ratio)
+    high = min(0.45 * sr, highcut + bandwidth * pad_ratio)
+    return low, high
+
+def auto_select_band(y, sr, factor=6):
+    freqs, psd = compute_psd(y, sr)
+    noise_floor = estimate_noise_floor(psd)
+
+    lowcut, highcut = detect_signal_band(freqs, psd, noise_floor, factor)
+
+    if lowcut is None:
+        raise ValueError("No dominant signal detected")
+
+    lowcut, highcut = pad_band(lowcut, highcut, sr)
+
+    return lowcut, highcut
+
+y, sr = librosa.load("hydrophone.wav", sr=None)
+
+lowcut, highcut = auto_select_band(y, sr)
+
+print(f"Auto-selected band: {lowcut:.1f} Hz – {highcut:.1f} Hz")
+
+y_filtered = bandpass_filter(y, sr, lowcut, highcut)
+
 import matplotlib.pyplot as plt
-import librosa
 
-x,fs=librosa.load('humpback_whale.wav', sr=6000)
-
-n_fft = 2048
-nperseg = 2048        # window length
-noverlap = nperseg//2 # 50% overlap
-window = signal.windows.hann(nperseg, sym=False)
-
-f, t, Sxx = signal.spectrogram(
-    x,
-    fs=fs,
-    window=window,
-    nperseg=nperseg,
-    noverlap=noverlap,
-    nfft=n_fft,
-    detrend=False,
-    scaling='density',   # gives PSD (V^2/Hz) style units
-    mode='magnitude'     # or 'psd' depending on use
-)
-
-# Optionally restrict to low-frequency band, e.g. 0–1000 Hz
-f_max = 1000
-idx = f <= f_max
-f = f[idx]
-Sxx = Sxx[idx, :]
-
-# Convert magnitude to dB for display
-eps = 1e-12
-Sxx_db = 20 * np.log10(Sxx + eps)
-
-plt.figure(figsize=(8, 4))
-plt.pcolormesh(t, f, Sxx_db, shading='gouraud', cmap='viridis')
-plt.ylabel('Frequency [Hz]')
-plt.xlabel('Time [s]')
-plt.title('LOFARgram')
-plt.colorbar(label='Level [dB]')
-plt.tight_layout()
-plt.show()
-
-# Example: simple per-frequency normalization for ML
-Sxx_db_norm = (Sxx_db - Sxx_db.mean(axis=1, keepdims=True)) / \
-               (Sxx_db.std(axis=1, keepdims=True) + 1e-6)
-
-# Sxx_db_norm can now be used as input feature (e.g., to a CNN)
-
+def plot_psd(freqs, psd, lowcut, highcut):
+    plt.semilogy(freqs, psd)
+    plt.axvline(lowcut, color='r')
+    plt.axvline(highcut, color='r')
+    plt.xlabel("Frequency (Hz)")
+    plt.ylabel("PSD")
+    plt.title("PSD with Auto-Selected Band")
+    plt.show()
 </code></pre>
     </section>
 
     <section id="code3">
         <h1>JavaScript Code Example</h1>
         <pre><code>import numpy as np
-from scipy import signal
-import matplotlib.pyplot as plt
 import librosa
-x,fs=librosa.load("humpback_whale.wav",sr=None)
-print(f"Loaded signal with {len(x)} samples at {fs} Hz")
-import numpy as np
-from scipy import signal
+import scipy.signal as signal
+import matplotlib.pyplot as plt
+from scipy.ndimage import median_filter
 
-def third_octave_centers(fmin=20, fmax=20000, ref_fc=1000):
-    n_low = int(np.ceil(3 * np.log2(fmin / ref_fc)))
-    n_high = int(np.floor(3 * np.log2(fmax / ref_fc)))
-    n = np.arange(n_low, n_high + 1)
-    return ref_fc * (2 ** (n / 3.0))
+class LofarDemonAnalyzer:
 
-def design_third_octave_filters(fc, fs, order=4):
-    filters = []
-    nyq = fs / 2.0
-    bw_factor = 2 ** (1/6)  # 1/6 octave from center to edge
+    def __init__(self, wav_path):
+        self.wav_path = wav_path
+        self.y = None
+        self.sr = None
 
-    for f_center in fc:
-        f_low = f_center / bw_factor
-        f_high = f_center * bw_factor
+        self.lowcut = None
+        self.highcut = None
 
-        # Skip bands that go outside (0, Nyquist)
-        if f_low <= 0 or f_high >= nyq:
-            continue
+        self.lofar_spectrogram = None
+        self.demon_freqs = None
+        self.demon_spectrum = None
 
-        low = f_low / nyq
-        high = f_high / nyq
+    def load_audio(self):
+        self.y, self.sr = librosa.load(self.wav_path, sr=None, mono=True)
 
-        # Extra safety check
-        if not (0 < low < high < 1):
-            continue
+    def _compute_psd(self, nperseg=4096):
+        freqs, psd = signal.welch(
+            self.y,
+            fs=self.sr,
+            window="hann",
+            nperseg=nperseg,
+            scaling="density"
+        )
+        return freqs, psd
 
-        b, a = signal.butter(order, [low, high], btype='band')
-        filters.append((b, a, f_center))
+    def auto_select_band(self, factor=6):
+        freqs, psd = self._compute_psd()
+        noise_floor = np.median(psd)
 
-    return filters
+        mask = psd > noise_floor * factor
+        signal_freqs = freqs[mask]
 
-fc = third_octave_centers(20, fs/2) 
+        if len(signal_freqs) == 0:
+            raise ValueError("No dominant signal detected")
 
-filters = design_third_octave_filters(fc, fs)
+        low = signal_freqs[0]
+        high = signal_freqs[-1]
 
-# Example signal (replace with your sonar data)
-t = np.arange(0, 10, 1/fs)
-x = np.random.randn(len(t))  # white noise example
+        bw = high - low
+        self.lowcut = max(1.0, low - 0.1 * bw)
+        self.highcut = min(0.45 * self.sr, high + 0.1 * bw)
 
-# Filter signal through each band
-band_signals = []
-band_rms = []
-valid_fc = []
-for b, a, f_center in filters:
-    # Filter the signal
-    y_band = signal.filtfilt(b, a, x)  # zero-phase filtering
-    
-    # Compute RMS power in this band
-    rms = np.sqrt(np.mean(y_band**2))
-    band_signals.append(y_band)
-    band_rms.append(rms)
-    valid_fc.append(f_center)
-band_rms_db = 20 * np.log10(np.array(band_rms) + 1e-12)
-valid_fc = np.array(valid_fc)
-plt.figure(figsize=(10, 6))
-plt.semilogx(valid_fc, band_rms_db, 'o-', linewidth=2)
-plt.xlabel('Frequency [Hz]')
-plt.ylabel('Level [dB re 1 V RMS]')
-plt.title('1/3-Octave Band Spectrum')
-plt.grid(True, which='both')
-plt.xlim([20, fs/2])
-plt.ylim([-60, 0])
-plt.show()
+    def _bandpass_filter(self, low, high, order=4):
+        nyq = 0.5 * self.sr
+        b, a = signal.butter(order, [low/nyq, high/nyq], btype='band')
+        return signal.filtfilt(b, a, self.y)
 
-def third_octave_analysis(x, fs, fmin=20, fmax=None):
-    """Complete 1/3-octave analysis: returns centers, levels (dB), and band signals."""
-    if fmax is None:
-        fmax = fs / 2
-    fc = third_octave_centers(fmin, fmax)
-    filters = design_third_octave_filters(fc, fs)
-    
-    band_rms = []
-    for b, a, f_center in filters:
-        y_band = signal.filtfilt(b, a, x)
-        rms = np.sqrt(np.mean(y_band**2))
-        band_rms.append(rms)
-    
-    return fc, 20 * np.log10(np.array(band_rms) + 1e-12)
+    def compute_lofar(self, n_fft=2048, hop=1024):
+        y_bp = self._bandpass_filter(self.lowcut, self.highcut)
 
-# Usage
-fc, levels_db = third_octave_analysis(x, fs)
+        S = np.abs(librosa.stft(y_bp, n_fft=n_fft, hop_length=hop))
+        S_db = librosa.amplitude_to_db(S, ref=np.max)
+
+        self.lofar_spectrogram = median_filter(S_db, size=(3, 3))
+
+    def compute_demon(self, demon_low=5, demon_high=200):
+        y_bp = self._bandpass_filter(demon_low, demon_high)
+
+        envelope = np.abs(signal.hilbert(y_bp))
+
+        spectrum = np.abs(np.fft.rfft(envelope))
+        freqs = np.fft.rfftfreq(len(envelope), 1 / self.sr)
+
+        self.demon_freqs = freqs
+        self.demon_spectrum = spectrum
+
+    def plot_lofar(self):
+        plt.figure(figsize=(10, 4))
+        librosa.display.specshow(
+            self.lofar_spectrogram,
+            sr=self.sr,
+            x_axis="time",
+            y_axis="hz"
+        )
+        plt.colorbar(label="dB")
+        plt.title("LOFAR Spectrogram")
+        plt.tight_layout()
+        plt.show()
+
+    def plot_demon(self):
+        plt.figure(figsize=(8, 4))
+        plt.plot(self.demon_freqs, self.demon_spectrum)
+        plt.xlim(0, 200)
+        plt.xlabel("Frequency (Hz)")
+        plt.ylabel("Amplitude")
+        plt.title("DEMON Spectrum")
+        plt.tight_layout()
+        plt.show()
+
+
+analyzer = LofarDemonAnalyzer("hydrophone.wav")
+
+analyzer.load_audio()
+analyzer.auto_select_band()
+
+analyzer.compute_lofar()
+analyzer.compute_demon()
+
+analyzer.plot_lofar()
+analyzer.plot_demon()
 
 </code></pre>
     </section>
