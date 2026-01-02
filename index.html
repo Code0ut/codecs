@@ -89,112 +89,161 @@ Date: ___ / ___ / 2025
         <h1>WAV Analyzer – Python Code</h1>
         <pre><code>import numpy as np
 import librosa
-import matplotlib.pyplot as plt
-from scipy.signal import butter, filtfilt, hilbert
-from scipy.signal import find_peaks
+import scipy.signal as signal
+from scipy.ndimage import label,find_objects
+import noisereduce as nr
+class HydrophonePulseAnalyzer:
+
+    def __init__(self, wav_path):
+        self.wav_path = wav_path
+        self.y = None
+        self.sr = None
+        self.envelope = None
+        self.pulses = []
+
+    def load_audio(self):
+        self.y, self.sr = librosa.load(self.wav_path, sr=None, mono=True)
+        self.y = nr.reduce_noise(y=self.y, sr=self.sr)
+    def bandpass_filter(self, low=50, high=5000, order=4):
+        nyq = 0.5 * self.sr
+        b, a = signal.butter(order, [low/nyq, high/nyq], btype='band')
+        self.y = signal.filtfilt(b, a, self.y)
+
+    def compute_envelope(self):
+        analytic_signal = signal.hilbert(self.y)
+        self.envelope = np.abs(analytic_signal)
+
+    def detect_pulses(self, threshold_factor=3):
+        noise_floor = np.mean(self.envelope)
+        threshold = threshold_factor * noise_floor
+
+        binary = self.envelope > threshold
+
+        labeled, num = label(binary)
+        regions = find_objects(labeled)
+
+        for region in regions:
+            start = region[0].start
+            end = region[0].stop
+            duration = (end - start) / self.sr
+            self.pulses.append({
+                "start_sample": start,
+                "end_sample": end,
+                "duration_sec": duration
+            })
+
+    def get_pulse_durations(self):
+        return [p["duration_sec"] for p in self.pulses]
+    def get_pulse_frequencies(self):
+        frequencies = []
+
+        for pulse in self.pulses:
+            start = pulse["start_sample"]
+            end = pulse["end_sample"]
+
+            pulse_signal = self.y[start:end]
+
+            if len(pulse_signal) < 10:
+                frequencies.append(0)
+                continue
+
+            window = np.hanning(len(pulse_signal))
+            pulse_signal = pulse_signal * window
+
+            fft_vals = np.abs(np.fft.rfft(pulse_signal))
+            freqs = np.fft.rfftfreq(len(pulse_signal), 1 / self.sr)
+
+            dominant_freq = freqs[np.argmax(fft_vals)]
+            frequencies.append(dominant_freq)
+
+            pulse["frequency_hz"] = dominant_freq
+
+        return frequencies
+
+    def get_pulse_snr(self, noise_margin_sec=0.05):
+        snrs = []
+
+        for pulse in self.pulses:
+            start = pulse["start_sample"]
+            end = pulse["end_sample"]
+            pulse_len = end - start
+
+            noise_len = int(noise_margin_sec * self.sr)
+            noise_start = max(0, start - noise_len - pulse_len)
+            noise_end = max(0, start - noise_len)
+
+            signal_segment = self.y[start:end]
+            noise_segment = self.y[noise_start:noise_end]
+
+            if len(noise_segment) == 0 or len(signal_segment) == 0:
+                snrs.append(None)
+                pulse["snr_db"] = None
+                continue
+
+            signal_power = np.mean(signal_segment ** 2)
+            noise_power = np.mean(noise_segment ** 2)
+
+            if noise_power == 0:
+                snr_db = np.inf
+            else:
+                snr_db = 10 * np.log10(signal_power / noise_power)
+
+            snrs.append(snr_db)
+            pulse["snr_db"] = snr_db
+
+        return snrs
+
+# 2️⃣ Identify the Signal Type (MOST IMPORTANT)
+# Source	Typical Frequency Band
+# Ship propeller (DEMON)	1–200 Hz
+# Engine machinery	50–1000 Hz
+# Sonar pings	1–10 kHz
+# Whale vocalizations	20–3000 Hz
+# Snapping shrimp	2–20 kHz
+
+# 👉 You are analyzing humpback whale, so:
+
+# Expected band: 20 Hz – 3 kHz
+
+# 3️⃣ Practical Method to Choose Lowcut & Highcut
+# Step-1: Look at the spectrum (mandatory)
+# import matplotlib.pyplot as plt
+# import librosa.display
+
+# D = np.abs(np.fft.rfft(analyzer.y))
+# freqs = np.fft.rfftfreq(len(analyzer.y), 1/analyzer.sr)
+
+# plt.plot(freqs, 20*np.log10(D + 1e-12))
+# plt.xlim(0, 5000)
+# plt.xlabel("Frequency (Hz)")
+# plt.ylabel("Magnitude (dB)")
+# plt.show()
 
 
-def load_wav(file_path):
-    signal, fs = librosa.load(file_path, sr=None, mono=True)
-    signal = signal - np.mean(signal)
-    signal = signal / np.max(np.abs(signal))
-    return signal, fs
+# 👉 Visually observe:
 
-def bandpass_filter(signal, fs, lowcut=300, highcut=3000, order=4):
-    nyq = 0.5 * fs
-    low = lowcut / nyq
-    high = highcut / nyq
-    b, a = butter(order, [low, high], btype='band')
-    return filtfilt(b, a, signal)
+# Where energy rises above noise
 
-def envelope_detection(signal):
-    analytic_signal = hilbert(signal)
-    envelope = np.abs(analytic_signal)
-    return envelope
+# Where it drops back to noise
+analyzer = HydrophonePulseAnalyzer("humpback_whale.wav")
 
-def lowpass_filter(signal, fs, cutoff=200, order=4):
-    nyq = 0.5 * fs
-    norm_cutoff = cutoff / nyq
-    b, a = butter(order, norm_cutoff, btype='low')
-    return filtfilt(b, a, signal)
+analyzer.load_audio()
+analyzer.bandpass_filter(low=100, high=3000)  # adjust based on target
+analyzer.compute_envelope()
+analyzer.detect_pulses(threshold_factor=4)
 
-def demon_spectrum(envelope, fs):
-    n = len(envelope)
-    spectrum = np.abs(np.fft.rfft(envelope))
-    freqs = np.fft.rfftfreq(n, d=1/fs)
-    return freqs, spectrum
+durations = analyzer.get_pulse_durations()
+pulse_freqs = analyzer.get_pulse_frequencies()
+print("Pulse durations (seconds):")
+# for d in durations:
+#     print(round(d, 4))
+for i in range(len(durations)):
+    print(
+        f"Pulse {i+1}: "
+        f"Duration = {durations[i]:.4f} s, "
+        f"Frequency = {pulse_freqs[i]:.1f} Hz"
+    )
 
-def plot_demon(freqs, spectrum, max_freq=200):
-    idx = freqs <= max_freq
-    plt.figure(figsize=(10, 4))
-    plt.plot(freqs[idx], spectrum[idx])
-    plt.xlabel("Frequency (Hz)")
-    plt.ylabel("Magnitude")
-    plt.title("DEMON Spectrum")
-    plt.grid()
-    plt.show()
-
-def demon_analysis(file_path):
-    signal, fs = load_wav(file_path)
-
-    bp_signal = bandpass_filter(signal, fs)
-    envelope = envelope_detection(bp_signal)
-    envelope_lp = lowpass_filter(envelope, fs)
-
-    freqs, spectrum = demon_spectrum(envelope_lp, fs)
-    plot_demon(freqs, spectrum)
-
-    return freqs, spectrum
-
-def detect_shaft_frequencies(freqs, spectrum, max_freq=20, prominence=0.05):
-    idx = freqs <= max_freq
-    freqs_lf = freqs[idx]
-    spec_lf = spectrum[idx] / np.max(spectrum[idx])
-
-    peaks, props = find_peaks(spec_lf, prominence=prominence)
-    shaft_freqs = freqs_lf[peaks]
-
-    return shaft_freqs
-
-def compute_srpm(shaft_freqs):
-    return shaft_freqs * 60
-
-def detect_blades(freqs, spectrum, shaft_freq, tol=0.2, max_harmonic=10):
-    blade_candidates = []
-
-    for k in range(2, max_harmonic + 1):
-        target_freq = k * shaft_freq
-        idx = np.where(np.abs(freqs - target_freq) <= tol)[0]
-        if len(idx) > 0:
-            blade_candidates.append(k)
-
-    if blade_candidates:
-        return blade_candidates[0]
-    return None
-
-def extract_mechanical_parameters(freqs, spectrum):
-    shaft_freqs = detect_shaft_frequencies(freqs, spectrum)
-    srpms = compute_srpm(shaft_freqs)
-
-    results = []
-
-    for i, f_shaft in enumerate(shaft_freqs):
-        blades = detect_blades(freqs, spectrum, f_shaft)
-
-        results.append({
-            "shaft_id": i + 1,
-            "shaft_frequency_hz": round(f_shaft, 2),
-            "shaft_rpm": round(f_shaft * 60, 1),
-            "number_of_blades": blades
-        })
-
-    return results
-
-file_path = "humpback_whale.wav"
-freqs, spectrum = demon_analysis(file_path)
-results = extract_mechanical_parameters(freqs, spectrum)
-for r in results:
-    print(r)
 </code></pre>
     </section>
 
