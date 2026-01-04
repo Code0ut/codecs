@@ -160,6 +160,31 @@ class HydrophonePulseAnalyzer:
 
         return frequencies
 
+    def merge_close_pulses(self, merge_gap_sec=0.02):
+        if not self.pulses:
+            return
+
+        merged = []
+        merge_gap_samples = int(merge_gap_sec * self.sr)
+
+        current = self.pulses[0]
+
+        for next_pulse in self.pulses[1:]:
+            gap = next_pulse["start_sample"] - current["end_sample"]
+
+            if gap <= merge_gap_samples:
+                current["end_sample"] = next_pulse["end_sample"]
+                current["duration_sec"] = (
+                    current["end_sample"] - current["start_sample"]
+                ) / self.sr
+            else:
+                merged.append(current)
+                current = next_pulse
+
+        merged.append(current)
+        self.pulses = merged
+
+
     def get_pulse_snr(self, noise_margin_sec=0.05):
         snrs = []
 
@@ -242,9 +267,7 @@ for i in range(len(durations)):
         f"Pulse {i+1}: "
         f"Duration = {durations[i]:.4f} s, "
         f"Frequency = {pulse_freqs[i]:.1f} Hz"
-    )
-
-</code></pre>
+    )</code></pre>
     </section>
 
     <section id="code2">
