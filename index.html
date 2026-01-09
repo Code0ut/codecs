@@ -87,187 +87,89 @@ Date: ___ / ___ / 2025
     </section>
     <section id="code1">
         <h1>WAV Analyzer – Python Code</h1>
-        <pre><code>import numpy as np
-import librosa
-import scipy.signal as signal
-from scipy.ndimage import label,find_objects
-import noisereduce as nr
-class HydrophonePulseAnalyzer:
-
-    def __init__(self, wav_path):
-        self.wav_path = wav_path
-        self.y = None
-        self.sr = None
-        self.envelope = None
-        self.pulses = []
-
-    def load_audio(self):
-        self.y, self.sr = librosa.load(self.wav_path, sr=None, mono=True)
-        self.y = nr.reduce_noise(y=self.y, sr=self.sr)
-    def bandpass_filter(self, low=50, high=5000, order=4):
-        nyq = 0.5 * self.sr
-        b, a = signal.butter(order, [low/nyq, high/nyq], btype='band')
-        self.y = signal.filtfilt(b, a, self.y)
-
-    def compute_envelope(self):
-        analytic_signal = signal.hilbert(self.y)
-        self.envelope = np.abs(analytic_signal)
-
-    def detect_pulses(self, threshold_factor=3):
-        noise_floor = np.mean(self.envelope)
-        threshold = threshold_factor * noise_floor
-
-        binary = self.envelope > threshold
-
-        labeled, num = label(binary)
-        regions = find_objects(labeled)
-
-        for region in regions:
-            start = region[0].start
-            end = region[0].stop
-            duration = (end - start) / self.sr
-            self.pulses.append({
-                "start_sample": start,
-                "end_sample": end,
-                "duration_sec": duration
-            })
-
-    def get_pulse_durations(self):
-        return [p["duration_sec"] for p in self.pulses]
-    def get_pulse_frequencies(self):
-        frequencies = []
-
-        for pulse in self.pulses:
-            start = pulse["start_sample"]
-            end = pulse["end_sample"]
-
-            pulse_signal = self.y[start:end]
-
-            if len(pulse_signal) < 10:
-                frequencies.append(0)
-                continue
-
-            window = np.hanning(len(pulse_signal))
-            pulse_signal = pulse_signal * window
-
-            fft_vals = np.abs(np.fft.rfft(pulse_signal))
-            freqs = np.fft.rfftfreq(len(pulse_signal), 1 / self.sr)
-
-            dominant_freq = freqs[np.argmax(fft_vals)]
-            frequencies.append(dominant_freq)
-
-            pulse["frequency_hz"] = dominant_freq
-
-        return frequencies
-
-    def merge_close_pulses(self, merge_gap_sec=0.02):
-        if not self.pulses:
-            return
-
-        merged = []
-        merge_gap_samples = int(merge_gap_sec * self.sr)
-
-        current = self.pulses[0]
-
-        for next_pulse in self.pulses[1:]:
-            gap = next_pulse["start_sample"] - current["end_sample"]
-
-            if gap <= merge_gap_samples:
-                current["end_sample"] = next_pulse["end_sample"]
-                current["duration_sec"] = (
-                    current["end_sample"] - current["start_sample"]
-                ) / self.sr
-            else:
-                merged.append(current)
-                current = next_pulse
-
-        merged.append(current)
-        self.pulses = merged
-
-
-    def get_pulse_snr(self, noise_margin_sec=0.05):
-        snrs = []
-
-        for pulse in self.pulses:
-            start = pulse["start_sample"]
-            end = pulse["end_sample"]
-            pulse_len = end - start
-
-            noise_len = int(noise_margin_sec * self.sr)
-            noise_start = max(0, start - noise_len - pulse_len)
-            noise_end = max(0, start - noise_len)
-
-            signal_segment = self.y[start:end]
-            noise_segment = self.y[noise_start:noise_end]
-
-            if len(noise_segment) == 0 or len(signal_segment) == 0:
-                snrs.append(None)
-                pulse["snr_db"] = None
-                continue
-
-            signal_power = np.mean(signal_segment ** 2)
-            noise_power = np.mean(noise_segment ** 2)
-
-            if noise_power == 0:
-                snr_db = np.inf
-            else:
-                snr_db = 10 * np.log10(signal_power / noise_power)
-
-            snrs.append(snr_db)
-            pulse["snr_db"] = snr_db
-
-        return snrs
-
-# 2️⃣ Identify the Signal Type (MOST IMPORTANT)
-# Source	Typical Frequency Band
-# Ship propeller (DEMON)	1–200 Hz
-# Engine machinery	50–1000 Hz
-# Sonar pings	1–10 kHz
-# Whale vocalizations	20–3000 Hz
-# Snapping shrimp	2–20 kHz
-
-# 👉 You are analyzing humpback whale, so:
-
-# Expected band: 20 Hz – 3 kHz
-
-# 3️⃣ Practical Method to Choose Lowcut & Highcut
-# Step-1: Look at the spectrum (mandatory)
+        <pre><code># import numpy as np
 # import matplotlib.pyplot as plt
-# import librosa.display
+# from scipy.io import wavfile
+# from scipy.signal import stft
+# from mpl_toolkits.mplot3d import Axes3D
 
-# D = np.abs(np.fft.rfft(analyzer.y))
-# freqs = np.fft.rfftfreq(len(analyzer.y), 1/analyzer.sr)
+# wav_path = "humpback_whale.wav"   # change path
 
-# plt.plot(freqs, 20*np.log10(D + 1e-12))
-# plt.xlim(0, 5000)
-# plt.xlabel("Frequency (Hz)")
-# plt.ylabel("Magnitude (dB)")
+# sr, data = wavfile.read(wav_path)
+
+# if data.ndim > 1:
+#     data = data[:, 0]
+
+# f, t, Zxx = stft(data, fs=sr, nperseg=1024)
+
+# magnitude = np.abs(Zxx)
+
+# X, Y = np.meshgrid(t, f)
+
+# fig = plt.figure(figsize=(12, 8))
+# ax = fig.add_subplot(111, projection='3d')
+
+# stride = 5
+# ax.plot_surface(
+#     X[::stride, ::stride],
+#     Y[::stride, ::stride],
+#     magnitude[::stride, ::stride],
+#     cmap='viridis'
+# )
+
+# ax.set_xlabel("Time (s)")
+# ax.set_ylabel("Frequency (Hz)")
+# ax.set_zlabel("Magnitude")
+
+# ax.set_title("3D Waterfall Plot")
+
 # plt.show()
 
+from mpl_toolkits.mplot3d import Axes3D
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib import cm
 
-# 👉 Visually observe:
+# Creating dataset
+x = np.outer(np.linspace(-3, 3, 32), np.ones(32))
+y = x.copy().T
+z = np.sin(x**2) + np.cos(y**2)
 
-# Where energy rises above noise
+# ----- Gradient computation -----
+dz_dx, dz_dy = np.gradient(z)
+grad_mag = np.sqrt(dz_dx**2 + dz_dy**2)
 
-# Where it drops back to noise
-analyzer = HydrophonePulseAnalyzer("humpback_whale.wav")
+# Normalize gradient for coloring
+grad_norm = (grad_mag - grad_mag.min()) / (grad_mag.max() - grad_mag.min())
 
-analyzer.load_audio()
-analyzer.bandpass_filter(low=100, high=3000)  # adjust based on target
-analyzer.compute_envelope()
-analyzer.detect_pulses(threshold_factor=4)
+# Creating figure
+fig = plt.figure(figsize=(14, 9))
+ax = plt.axes(projection='3d')
 
-durations = analyzer.get_pulse_durations()
-pulse_freqs = analyzer.get_pulse_frequencies()
-print("Pulse durations (seconds):")
-# for d in durations:
-#     print(round(d, 4))
-for i in range(len(durations)):
-    print(
-        f"Pulse {i+1}: "
-        f"Duration = {durations[i]:.4f} s, "
-        f"Frequency = {pulse_freqs[i]:.1f} Hz"
-    )</code></pre>
+# Gradient-colored surface
+surf = ax.plot_surface(
+    x, y, z,
+    facecolors=cm.viridis(grad_norm),
+    rstride=1,
+    cstride=1,
+    linewidth=0,
+    antialiased=True
+)
+
+# Colorbar (gradient intensity)
+mappable = cm.ScalarMappable(cmap=cm.viridis)
+mappable.set_array(grad_mag)
+fig.colorbar(mappable, ax=ax, shrink=0.6, label="Gradient Magnitude")
+
+ax.set_xlabel("X")
+ax.set_ylabel("Y")
+ax.set_zlabel("Z")
+
+ax.set_title("3D Gradient Surface Plot")
+
+plt.show()
+
+</code></pre>
     </section>
 
     <section id="code2">
@@ -337,6 +239,58 @@ def plot_psd(freqs, psd, lowcut, highcut):
     plt.ylabel("PSD")
     plt.title("PSD with Auto-Selected Band")
     plt.show()
+
+    import numpy as np
+import matplotlib.pyplot as plt
+from scipy.io import wavfile
+from scipy.signal import spectrogram
+from matplotlib import cm
+
+# Load audio
+sample_rate, data = wavfile.read("humpback_whale.wav")
+
+if data.ndim > 1:
+    data = data[:, 0]
+
+# Spectrogram
+frequencies, times, Sxx = spectrogram(data, fs=sample_rate, nperseg=1024)
+
+# dB scale
+Sxx_dB = 10 * np.log10((Sxx/1e-6) + 1e-10)
+
+# Meshgrid (THIS is what you were missing)
+X, Y = np.meshgrid(times, frequencies)
+Z = Sxx_dB
+
+# Gradient for coloring
+dz_df, dz_dt = np.gradient(Z)
+grad_mag = np.sqrt(dz_df**2 + dz_dt**2)
+grad_norm = (grad_mag - grad_mag.min()) / (grad_mag.max() - grad_mag.min())
+
+# Plot
+fig = plt.figure(figsize=(14, 9))
+ax = fig.add_subplot(111, projection='3d')
+
+ax.plot_surface(
+    X, Y, Z,
+    facecolors=cm.viridis(grad_norm),
+    rstride=6,
+    cstride=6,
+    linewidth=0,
+    antialiased=True
+)
+
+# Colorbar
+mappable = cm.ScalarMappable(cmap=cm.viridis)
+mappable.set_array(grad_mag)
+fig.colorbar(mappable, ax=ax, shrink=0.6, label="Gradient Magnitude")
+
+ax.set_xlabel("Time (s)")
+ax.set_ylabel("Frequency (Hz)")
+ax.set_zlabel("Amplitude (dB)")
+ax.set_title("3D Gradient Surface Plot (Spectrogram)")
+
+plt.show()
 </code></pre>
     </section>
 
